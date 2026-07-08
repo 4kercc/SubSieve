@@ -36,9 +36,31 @@ is_valid_trusted_ip() {
         return 0
     fi
 
-    if [[ "$addr" == *:* && "$addr" =~ ^[0-9A-Fa-f:]+$ ]]; then
+    if [[ "$addr" == *:* ]]; then
+        # 逐段校验 IPv6，拒绝畸形地址：否则会被写入 real_ip.conf 导致 nginx 启动失败
+        [[ "$addr" =~ ^[0-9A-Fa-f:]+$ ]] || return 1
+        case "$addr" in
+            *:::*)   return 1 ;;   # 三个及以上连续冒号
+            *::*::*) return 1 ;;   # 出现两个 "::"
+        esac
+        # 单独的前导/末尾冒号（非 "::"）非法
+        [[ "$addr" == :* && "$addr" != ::* ]] && return 1
+        [[ "$addr" == *: && "$addr" != *:: ]] && return 1
         if [[ -n "$prefix" ]]; then
             (( 10#$prefix <= 128 )) || return 1
+        fi
+        local -a hextets
+        local groups=0 seg
+        IFS=':' read -ra hextets <<< "$addr"
+        for seg in "${hextets[@]}"; do
+            [[ -z "$seg" ]] && continue
+            [[ "$seg" =~ ^[0-9A-Fa-f]{1,4}$ ]] || return 1
+            groups=$((groups + 1))
+        done
+        if [[ "$addr" == *::* ]]; then
+            (( groups <= 7 )) || return 1
+        else
+            (( groups == 8 )) || return 1
         fi
         return 0
     fi
