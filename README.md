@@ -72,7 +72,7 @@ chmod +x setup.sh
 | 提示 | 说明 |
 |------|------|
 | 机场地址 | 你的机场面板域名，如 `panel.example.com`，不含 `https://` |
-| 订阅路径 | 默认 `/api/v1/client/subscribe`，直接回车即可 |
+| 订阅路径 | v2board/V2b 默认 `/api/v1/client/subscribe`；**SSPanel 填 `/link/`** |
 | 订阅端口 | 机场后端监听端口，默认 `443` |
 | 网关端口 | 客户端订阅链接对外暴露的端口，默认 `443` |
 | 域名（SSL） | 输入已解析到本机的域名，脚本自动调用 acme.sh 申请证书；留空则手动放证书 |

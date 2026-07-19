@@ -24,7 +24,9 @@ if ($method === 'GET') {
                 if (!preg_match('/^(\S+) \[[^\]]+\] "([^"]*)" (\d+)/', $line, $m)) continue;
                 [, $ip, $request, $status] = $m;
                 if ((int)$status !== 200) continue;
-                if (!preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) continue;
+                // 提取 Token：优先 SSPanel /link/{token} 路径格式，兜底 v2board ?token=xxx
+                if (!preg_match('#/link/([^?/\s]+)#i', $request, $tm)
+                    && !preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) continue;
                 $tok = $tm[1];
                 if (!isset($blacklistedSet[$tok])) continue;
                 $tokenIpCount[$tok][$ip] = ($tokenIpCount[$tok][$ip] ?? 0) + 1;

@@ -183,7 +183,11 @@ function parse_line(string $line): ?array {
     [, $ip, $time, $request, $status, $bytes, $ua] = $m;
 
     $token = '';
-    if (preg_match('/[?&]token=([^&\s"]+)/i', $request, $tm)) {
+    // 优先提取 SSPanel 格式：/link/{token}?... （token 在路径段中）
+    if (preg_match('#/link/([^?/\s"]+)#i', $request, $tm)) {
+        $token = $tm[1];
+    // 兜底：v2board/通用格式 ?token=xxx
+    } elseif (preg_match('/[?&]token=([^&\s"]+)/i', $request, $tm)) {
         $token = $tm[1];
     }
 

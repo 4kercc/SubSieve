@@ -54,7 +54,9 @@ if (file_exists(LOG_FILE)) {
                 elseif ($status === 429) $ips[$ip]['s429']++;
                 elseif ($status === 444) $ips[$ip]['s444']++;
 
-                if (preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) {
+                // 提取 Token：优先 SSPanel /link/{token} 路径格式，兜底 v2board ?token=xxx
+                if (preg_match('#/link/([^?/\s]+)#i', $request, $tm)
+                    || preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)) {
                     $tok = $tm[1];
                     if (!isset($tokenBlacklist[$tok])) {
                         if (!isset($tokens[$tok])) $tokens[$tok] = ['count'=>0,'last_time'=>''];
@@ -72,7 +74,8 @@ if (file_exists(LOG_FILE)) {
             // ── 全量可疑分析（200 状态的订阅请求，排除白名单IP和Token黑名单）──
             if ($status === 200
                 && !isset($whitelistIps[$ip])
-                && preg_match('/[?&]token=([^&\s]+)/i', $request, $tm)
+                && (preg_match('#/link/([^?/\s]+)#i', $request, $tm)
+                || preg_match('/[?&]token=([^&\s]+)/i', $request, $tm))
             ) {
                 $tok = $tm[1];
                 if (!isset($tokenBlacklist[$tok])) {

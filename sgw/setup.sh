@@ -75,7 +75,9 @@ ask "机场地址（如 panel.yourdomain.com，不含 https://）" "$_S_V2B_HOST
 V2B_HOST="${V2B_HOST#https://}"
 V2B_BACKEND="https://${V2B_HOST}"
 
-ask "订阅路径（默认 /api/v1/client/subscribe）" "${_S_SUBSCRIBE_PATH:-/api/v1/client/subscribe}" SUBSCRIBE_PATH
+echo "  v2board/V2b 面板：默认 /api/v1/client/subscribe"
+echo "  SSPanel 面板：填写 /link/"
+ask "订阅路径" "${_S_SUBSCRIBE_PATH:-/api/v1/client/subscribe}" SUBSCRIBE_PATH
 
 ask "用来接收客户订阅请求的端口（默认 443）" "${_S_GATEWAY_PORT:-443}" GATEWAY_PORT
 
