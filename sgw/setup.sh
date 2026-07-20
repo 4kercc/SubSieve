@@ -181,10 +181,11 @@ if [[ -n "$SSL_DOMAIN" ]]; then
         if [[ "${_ACME_EXIT:-0}" -eq 0 || "${_ACME_EXIT:-0}" -eq 2 ]]; then
             # install-cert 只需指定主域名
             # --reloadcmd：证书续期后自动通知 nginx 容器热重载，无需重启容器
+            # 用 docker ps 先检查容器是否运行，首次部署时容器尚未启动则静默跳过
             "$ACME_CMD" --install-cert -d "$SSL_DOMAIN" \
                 --fullchain-file ssl/cert.pem \
                 --key-file       ssl/key.pem \
-                --reloadcmd      "docker exec subscribe-gateway nginx -s reload"
+                --reloadcmd      "docker ps --format '{{.Names}}' | grep -q '^subscribe-gateway$' && docker exec subscribe-gateway nginx -s reload || true"
             echo -e "${GREEN}✅ 证书已安装到 ssl/（SAN 覆盖：${SSL_DOMAIN_RAW}）${RESET}"
             echo -e "${GREEN}   续期后将自动热重载 nginx，无需人工干预${RESET}"
         else
