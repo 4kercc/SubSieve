@@ -116,6 +116,27 @@ write_real_ip_conf() {
     fi
 }
 
+# ── 优先从 admin_settings.json 加载配置（后台设置 > .env 环境变量）────
+# admin 后台修改设置时会写入 admin_settings.json（持久化在 gw_config volume）
+# 容器重启后用此处的值重新生成 protect.conf，保证后台修改不丢失
+ADMIN_SETTINGS_JSON="/etc/nginx/subscribe/admin_settings.json"
+if [[ -f "$ADMIN_SETTINGS_JSON" ]]; then
+    _su=$(jq -r '.upstream_url  // empty' "$ADMIN_SETTINGS_JSON" 2>/dev/null || true)
+    _sh=$(jq -r '.upstream_host // empty' "$ADMIN_SETTINGS_JSON" 2>/dev/null || true)
+    _sp=$(jq -r '.subscribe_path // empty' "$ADMIN_SETTINGS_JSON" 2>/dev/null || true)
+    if [[ -n "$_su" ]]; then
+        V2B_BACKEND="$_su"
+        log "上游URL  已从后台配置加载: $V2B_BACKEND"
+    fi
+    if [[ -n "$_sh" ]]; then
+        V2B_HOST="$_sh"
+    fi
+    if [[ -n "$_sp" ]]; then
+        SUBSCRIBE_PATH="$_sp"
+        log "订阅路径 已从后台配置加载: $SUBSCRIBE_PATH"
+    fi
+fi
+
 log "生成 protect.conf ..."
 envsubst '${V2B_BACKEND} ${V2B_HOST} ${SUBSCRIBE_PATH}' \
     < /etc/nginx/templates-src/subscribe_protect.conf.template \

@@ -70,7 +70,13 @@ done
 cat > "$OUTPUT_TMP" <<EOF
 # 由 update_cloud_geo.sh 自动生成 | $(date '+%Y-%m-%d %H:%M:%S')
 
-limit_req_zone \$binary_remote_addr zone=subscribe_limit:10m rate=20r/m;
+# 速率限制 key：白名单 IP 映射为空字符串，nginx 对空 key 不计入 zone，实现白名单跳过限速
+map \$whitelist_ip \$subscribe_limit_key {
+    1  "";                    # 白名单 IP → 空 key → 不限速
+    default \$binary_remote_addr;
+}
+
+limit_req_zone \$subscribe_limit_key zone=subscribe_limit:10m rate=20r/m;
 
 geo \$is_cloud_ip {
     default 0;

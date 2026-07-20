@@ -167,6 +167,7 @@ location ^~ $subscribePath {
     if (\$block_reason = "cloud") { return 403 "Forbidden: Cloud IP"; }
     if (\$block_reason = "ua")    { return 403 "Forbidden: Invalid Client"; }
 
+    # 白名单 IP 通过 cloud_geo.conf 中的 map 将 $subscribe_limit_key 置为空，不受此限速约束
     limit_req zone=subscribe_limit burst=5 nodelay;
     limit_req_status 429;
 

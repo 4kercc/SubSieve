@@ -9,7 +9,7 @@ COPY src/ /var/www/html/
 RUN chown -R nginx:nginx /var/www/html
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 64444
 
