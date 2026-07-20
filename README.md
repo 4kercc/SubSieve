@@ -4,6 +4,10 @@
 
 订阅请求先经过黑名单、云厂商 IP 识别、UA 过滤、速率限制等多层拦截，通过后才反代到机场后端，防止订阅链接被扫描或滥用。
 
+
+# 新增优化：
+
+支持SSPANEL订阅格式/link/，用于sspanel老面板使用。
 ---
 
 ## 目录结构
@@ -61,7 +65,7 @@ sgw/
 ### 一键部署
 
 ```bash
-git clone https://github.com/Null404-0/SubSieve.git
+git clone https://github.com/4kercc/SubSieve.git
 cd SubSieve/sgw
 chmod +x setup.sh
 ./setup.sh
