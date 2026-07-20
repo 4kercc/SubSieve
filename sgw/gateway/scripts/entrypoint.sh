@@ -168,8 +168,16 @@ map $http_user_agent $is_custom_bad_ua {
 }
 UAEOF
 fi
+if [[ ! -f /etc/nginx/subscribe/ua_redirect.conf ]]; then
+    cat > /etc/nginx/subscribe/ua_redirect.conf <<'UAREDEOF'
+# UA 301跳转配置 - 由 admin 自动生成
+map $http_user_agent $ua_custom_redirect {
+    default "";
+}
+UAREDEOF
+fi
 [[ ! -f /etc/nginx/subscribe/ua_blacklist.json ]] && echo "[]" > /etc/nginx/subscribe/ua_blacklist.json
-chmod 666 /etc/nginx/subscribe/ua_custom.conf /etc/nginx/subscribe/ua_blacklist.json
+chmod 666 /etc/nginx/subscribe/ua_custom.conf /etc/nginx/subscribe/ua_redirect.conf /etc/nginx/subscribe/ua_blacklist.json
 
 # 初始化UA白名单
 if [[ ! -f /etc/nginx/subscribe/ua_whitelist.conf ]]; then
@@ -186,17 +194,45 @@ chmod 666 /etc/nginx/subscribe/ua_whitelist.conf /etc/nginx/subscribe/ua_whiteli
 # 首次拉取云IP库
 if [[ ! -f /etc/nginx/subscribe/cloud_geo.conf ]]; then
     log "首次启动：拉取云厂商IP库..."
-    SKIP_NGINX_RELOAD=1 /scripts/update_cloud_geo.sh
+    SKIP_NGINX_RELOAD=1 /scripts/update_cloud_geo.sh || {
+        log "[警告] 云IP库拉取失败，生成最小降级配置（无云IP封锁）"
+        cat > /etc/nginx/subscribe/cloud_geo.conf <<'GEODEG'
+# [降级模式] 首次启动网络不可用，请在管理后台手动点击「更新云IP库」
+map $binary_remote_addr $whitelist_ip { default 0; }
+map $whitelist_ip $subscribe_limit_key { 1 ""; default $binary_remote_addr; }
+limit_req_zone $subscribe_limit_key zone=subscribe_limit:10m rate=20r/m;
+geo $is_cloud_ip { default 0; }
+map $http_user_agent $bad_subscribe_ua {
+    default 0;
+    "" 1;
+    "clash" 1;
+    "~^curl/" 1;
+    "~^python" 1;
+    "~^wget" 1;
+}
+GEODEG
+    }
 else
     log "cloud_geo.conf 已存在，跳过初次拉取"
 fi
 
-# 每周定时更新
+# 定时更新云IP库（基于时间戳，感知容器重启）
+LAST_UPDATE_FILE="/etc/nginx/subscribe/.last_cloud_update"
+if [[ -f "$LAST_UPDATE_FILE" ]]; then
+    _LAST=$(cat "$LAST_UPDATE_FILE" 2>/dev/null || echo 0)
+    _NOW=$(date +%s)
+    if (( _NOW - _LAST > 604800 )); then
+        log "云IP库超过7天未更新，立即更新..."
+        SKIP_NGINX_RELOAD=0 /scripts/update_cloud_geo.sh && date +%s > "$LAST_UPDATE_FILE" || log "[警告] 更新失败"
+    fi
+else
+    date +%s > "$LAST_UPDATE_FILE"
+fi
 (
     while true; do
         sleep 604800
         log "定时更新云IP库..."
-        SKIP_NGINX_RELOAD=0 /scripts/update_cloud_geo.sh || log "[警告] 定时更新失败"
+        SKIP_NGINX_RELOAD=0 /scripts/update_cloud_geo.sh && date +%s > "$LAST_UPDATE_FILE" || log "[警告] 定时更新失败"
     done
 ) &
 

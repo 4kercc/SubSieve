@@ -7,6 +7,12 @@ location ^~ ${SUBSCRIBE_PATH} {
     if ($is_custom_bad_ua = 1)  { set $block_reason "ua"; }
     if ($is_ua_whitelisted = 1) { set $block_reason ""; }
 
+    # 301 跳转逻辑：如果配置了自定义 UA 跳转 URL，且未被白名单放行，则进行 301 重定向
+    set $my_redirect $ua_custom_redirect;
+    if ($whitelist_ip = 1)      { set $my_redirect ""; }
+    if ($is_ua_whitelisted = 1) { set $my_redirect ""; }
+    if ($my_redirect != "")     { return 301 $my_redirect; }
+
     if ($whitelist_ip = 1) { set $block_reason ""; }
 
     if ($block_reason = "cloud") { return 403 "Forbidden: Cloud IP"; }
@@ -15,6 +21,7 @@ location ^~ ${SUBSCRIBE_PATH} {
     # 白名单 IP 通过 cloud_geo.conf 中的 map 将 $subscribe_limit_key 置为空，不受此限速约束
     limit_req zone=subscribe_limit burst=5 nodelay;
     limit_req_status 429;
+    client_max_body_size 1k;   # 订阅请求仅需 GET 参数，限制请求体防止滓用
 
     # 使用变量让 nginx 在运行时通过 http 块的 resolver 动态解析 DNS
     # 避免上游 IP 变动后 nginx 仍使用启动时的缓存结果导致连接失败

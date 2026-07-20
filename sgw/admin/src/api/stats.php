@@ -10,6 +10,26 @@ $badUas = [];   // ua => count (403 only, today)
 $suspTokenIps = [];  // token => {ip => true}
 $suspIpTokens = [];  // ip    => {token => true}
 
+// 可疑分析阈值：优先读取 admin_settings.json，缺省为 3
+$_stg = [];
+if (file_exists(SETTINGS_JSON)) {
+    $_d = json_decode(file_get_contents(SETTINGS_JSON), true);
+    if (is_array($_d)) $_stg = $_d;
+}
+$SUSP_TOKEN_THRESHOLD = max(1, (int)($_stg['susp_token_threshold'] ?? 3));
+$SUSP_IP_THRESHOLD    = max(1, (int)($_stg['susp_ip_threshold']    ?? 3));
+
+// 基于日志文件 mtime 的简单缓存——日志未变化时直接返回缓存，避免大文件重复扫描
+$_cacheFile  = sys_get_temp_dir() . '/subsieve_stats_' . md5(LOG_FILE) . '.json';
+$_logMtime   = file_exists(LOG_FILE) ? filemtime(LOG_FILE) : 0;
+$_cacheMtime = file_exists($_cacheFile) ? filemtime($_cacheFile) : 0;
+if ($_cacheMtime >= $_logMtime && $_logMtime > 0) {
+    $cached = json_decode(file_get_contents($_cacheFile), true);
+    if (is_array($cached)) {
+        json_out($cached);
+    }
+}
+
 // 读取Token黑名单（用于从统计中排除）
 $tokenBlacklist = [];
 if (file_exists(TOKEN_BLACKLIST_JSON)) {
@@ -114,8 +134,7 @@ foreach (array_slice($badUas, 0, 500, true) as $ua => $cnt) {
     $badUaList[] = ['ua' => $ua, 'count' => $cnt];
 }
 
-// 可疑 Token（日志周期内被 3+ 个不同IP拉取）
-$SUSP_TOKEN_THRESHOLD = 3;
+// 可疑 Token（日志周期内被 3+ 个不同 IP 拉取）
 $suspTokenList = [];
 foreach ($suspTokenIps as $tok => $ipSet) {
     $cnt = count($ipSet);
@@ -125,8 +144,7 @@ foreach ($suspTokenIps as $tok => $ipSet) {
 }
 usort($suspTokenList, fn($a,$b) => $b['ip_count'] - $a['ip_count']);
 
-// 可疑 IP（日志周期内拉取了 3+ 个不同Token）
-$SUSP_IP_THRESHOLD = 3;
+// 可疑 IP（日志周期内拉取了 3+ 个不同 Token）
 $suspIpList = [];
 foreach ($suspIpTokens as $ip => $tokSet) {
     $cnt = count($tokSet);
@@ -136,11 +154,14 @@ foreach ($suspIpTokens as $ip => $tokSet) {
 }
 usort($suspIpList, fn($a,$b) => $b['token_count'] - $a['token_count']);
 
-json_out([
+$result = [
     'ok'          => true,
     'top_ips'     => $topIps,
     'top_tokens'  => $topTokens,
     'bad_uas'     => $badUaList,
     'susp_tokens' => $suspTokenList,
     'susp_ips'    => $suspIpList,
-]);
+];
+// 写入缓存
+file_put_contents($_cacheFile, json_encode($result, JSON_UNESCAPED_UNICODE));
+json_out($result);

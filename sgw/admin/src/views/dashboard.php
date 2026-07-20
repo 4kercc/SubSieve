@@ -372,8 +372,9 @@ tr:hover td{background:rgba(99,102,241,.04)}
       <div class="card">
         <div class="card-title">添加封禁 UA</div>
         <div class="ip-form">
-          <input class="ip-input" id="ua-keyword" placeholder="UA 关键词（如 python-requests、clash）">
-          <input class="comment-input" id="ua-comment" placeholder="备注（可选）">
+          <input class="ip-input" id="ua-keyword" placeholder="UA 关键词（如 python-requests、clash）" style="flex:2">
+          <input class="ip-input" id="ua-redirect" placeholder="跳转 URL（可选，如 https://google.com）" style="flex:2">
+          <input class="comment-input" id="ua-comment" placeholder="备注（可选）" style="flex:1">
           <button class="btn-primary" onclick="uaAdd()">添加并立即生效</button>
         </div>
         <div class="apply-hint" style="margin-bottom:14px;color:#eab308">
@@ -797,7 +798,10 @@ function renderLogs() {
   const subOnly = document.querySelector('input[name="sub-filter"][value="subscribe"]').checked;
 
   let rows = allLogs.filter(l => {
-    if (subOnly && !l.request.includes('/api/v1/client/subscribe')) return false;
+    // 仅订阅相关：token 非空（无论 /link/ 还是 ?token= 格式均已被后端提取）
+    // 同时兜底匹配常见订阅路径关键词，避免极少数 token 提取失败的请求被漏掉
+    if (subOnly && !l.token && !l.request.includes('/link/') && !l.request.includes('/api/v1/client/subscribe') && !l.request.includes('/subscribe')) return false;
+
     if (fIp     && !l.ip.toLowerCase().includes(fIp)) return false;
     if (fStatus && String(l.status) !== fStatus) return false;
     if (fToken  && !l.token.toLowerCase().includes(fToken)) return false;
@@ -862,8 +866,77 @@ function makeCommentCell(apiPath, keyField, keyValue, comment) {
 }
 
 function attachCommentCells(container) {
-  (container || document).querySelectorAll('.comment-cell').forEach(td => {
+  const rootEl = container || document;
+  rootEl.querySelectorAll('.comment-cell').forEach(td => {
     td.onclick = () => startEditComment(td);
+  });
+  rootEl.querySelectorAll('.redirect-cell').forEach(td => {
+    td.onclick = () => startEditRedirect(td);
+  });
+}
+
+// ── 行内跳转URL编辑（自定义封禁UA专属） ────────────────────────────────
+function makeRedirectCell(apiPath, keyField, keyValue, redirectUrl) {
+  const r = esc(redirectUrl || '');
+  const display = r ? r : '<span style="opacity:.35;font-size:11px">直接封禁(403)</span>';
+  return `<td class="redirect-cell" data-api="${esc(apiPath)}" data-keyf="${esc(keyField)}" data-keyv="${esc(keyValue)}" data-redirect="${r}" style="color:#a855f7;cursor:pointer;min-width:100px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r ? r + '（点击编辑）' : '点击设置 301 跳转'}">${display}</td>`;
+}
+
+async function startEditRedirect(td) {
+  if (td.querySelector('input')) return;
+  const apiPath  = td.dataset.api;
+  const keyField = td.dataset.keyf;
+  const keyValue = td.dataset.keyv;
+  const current  = td.dataset.redirect || '';
+
+  const input = document.createElement('input');
+  input.type  = 'text';
+  input.value = current;
+  input.placeholder = '跳转地址，如 https://…';
+  input.style.cssText = 'width:100%;min-width:100px;background:var(--bg-input);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:12px;outline:none;box-sizing:border-box';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus(); input.select();
+
+  let saved = false;
+  async function doSave() {
+    if (saved) return; saved = true;
+    const newRedirect = input.value.trim();
+    if (newRedirect === current) { doRestoreRedirect(current); return; }
+    if (newRedirect !== '' && !/^https?:\/\//i.test(newRedirect)) {
+      toast('跳转 URL 必须以 http:// 或 https:// 开头', 'err');
+      doRestoreRedirect(current);
+      return;
+    }
+    const body = {redirect_url: newRedirect};
+    body[keyField] = keyValue;
+    const d = await apiFetch(apiPath, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      headers: {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+    });
+    if (d.ok) {
+      td.dataset.redirect = newRedirect;
+      const e = allUaBlEntries.find(e => e.ua === keyValue);
+      if (e) e.redirect_url = newRedirect;
+      doRestoreRedirect(newRedirect);
+      toast('✅ 跳转 URL 已更新' + (d.nginx_reloaded ? '，配置已重载' : ''));
+    } else {
+      toast(d.error || '更新失败', 'err');
+      doRestoreRedirect(current);
+    }
+  }
+  function doRestoreRedirect(r) {
+    const d2 = esc(r);
+    td.innerHTML = d2 ? d2 : '<span style="opacity:.35;font-size:11px">直接封禁(403)</span>';
+    td.title = d2 ? d2 + '（点击编辑）' : '点击设置 301 跳转';
+    td.style.cursor = 'pointer';
+    td.onclick = () => startEditRedirect(td);
+  }
+  input.addEventListener('blur', doSave);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { saved = true; doRestoreRedirect(current); }
   });
 }
 
@@ -1270,10 +1343,11 @@ function renderUaBlacklist() {
   }
   const uaListEl = document.getElementById('ua-list');
   uaListEl.innerHTML = `
-    <table><thead><tr><th>UA 关键词</th><th>备注</th><th>添加时间</th><th>操作</th></tr></thead>
+    <table><thead><tr><th>UA 关键词</th><th>跳转 URL（点击编辑）</th><th>备注</th><th>添加时间</th><th>操作</th></tr></thead>
     <tbody>${entries.map(e => `
       <tr>
         <td class="ip-cell">${esc(e.ua)}</td>
+        ${makeRedirectCell('/api/ua_blacklist.php', 'ua', e.ua, e.redirect_url||'')}
         ${makeCommentCell('/api/ua_blacklist.php', 'ua', e.ua, e.comment||'')}
         <td style="color:#64748b;font-size:11px">${esc(e.added_at||'')}</td>
         <td><button class="btn-danger" onclick="uaDel(${jsArg(e.ua)})">移除</button></td>
@@ -1304,14 +1378,20 @@ function renderUaWhitelist() {
 
 async function uaAdd() {
   const ua  = document.getElementById('ua-keyword').value.trim();
+  const red = document.getElementById('ua-redirect').value.trim();
   const cmt = document.getElementById('ua-comment').value.trim();
   if (!ua) { toast('请输入 UA 关键词','err'); return; }
+  if (red !== '' && !/^https?:\/\//i.test(red)) {
+    toast('跳转 URL 必须以 http:// 或 https:// 开头', 'err');
+    return;
+  }
   const d = await apiFetch('/api/ua_blacklist.php', {
-    method:'POST', body:JSON.stringify({ua, comment:cmt}),
+    method:'POST', body:JSON.stringify({ua, redirect_url:red, comment:cmt}),
     headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
   });
   if (d.ok) {
     document.getElementById('ua-keyword').value = '';
+    document.getElementById('ua-redirect').value = '';
     document.getElementById('ua-comment').value = '';
     toast('✅ 已封禁并立即生效');
     loadUaBlacklist();
