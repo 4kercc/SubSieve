@@ -95,18 +95,25 @@ REAL_IP_HEADER="${REAL_IP_HEADER// /}"
 echo ""
 echo -e "${CYAN}SSL 证书配置${RESET}"
 echo "  方式一：输入已解析到本机的域名，脚本自动申请证书"
+echo "          支持多个域名（逗号分隔），第一个为主域名"
+echo "          示例：sub.example.com,sub2.example.com,sub3.example.com"
 echo "  方式二：直接回车跳过，手动将证书放入 ssl/ 目录"
 echo ""
-ask "请输入域名（如 sub.yourdomain.com，留空跳过）" "$_S_SSL_DOMAIN" SSL_DOMAIN
-SSL_DOMAIN="${SSL_DOMAIN#https://}"
-SSL_DOMAIN="${SSL_DOMAIN%%/*}"
+ask "请输入域名（多个用逗号分隔，留空跳过）" "$_S_SSL_DOMAIN" SSL_DOMAIN_RAW
+# 去掉 https:// 前缀、路径、空格
+SSL_DOMAIN_RAW="${SSL_DOMAIN_RAW#https://}"
+SSL_DOMAIN_RAW="${SSL_DOMAIN_RAW%%/*}"
+SSL_DOMAIN_RAW="${SSL_DOMAIN_RAW// /}"
+# 解析为数组，第一个域名为主域名
+IFS=',' read -ra _SSL_DOMAIN_ARR <<< "$SSL_DOMAIN_RAW"
+SSL_DOMAIN="${_SSL_DOMAIN_ARR[0]}"   # 主域名（用于证书检查和 acme 安装）
 
 # ── 持久化本次输入（下次重跑时作为默认值）────────────────────
 cat > "$STATE_FILE" <<EOF
 _S_V2B_HOST="${V2B_HOST}"
 _S_SUBSCRIBE_PATH="${SUBSCRIBE_PATH}"
 _S_GATEWAY_PORT="${GATEWAY_PORT}"
-_S_SSL_DOMAIN="${SSL_DOMAIN}"
+_S_SSL_DOMAIN="${SSL_DOMAIN_RAW}"
 _S_AXISNOW_TRUSTED_IPS="${AXISNOW_TRUSTED_IPS}"
 _S_REAL_IP_HEADER="${REAL_IP_HEADER}"
 EOF
@@ -115,7 +122,14 @@ mkdir -p ssl
 
 # ── SSL 证书申请 ───────────────────────────────────────────────
 if [[ -n "$SSL_DOMAIN" ]]; then
-    # 检查证书是否已存在且域名匹配
+    # 构建 acme.sh 的 -d 参数列表（每个域名一个 -d）
+    _ACME_D_FLAGS=""
+    for _d in "${_SSL_DOMAIN_ARR[@]}"; do
+        _d="${_d// /}"  # 去空格
+        [[ -n "$_d" ]] && _ACME_D_FLAGS="$_ACME_D_FLAGS -d $_d"
+    done
+
+    # 检查证书是否已存在且主域名匹配
     _CERT_OK=false
     if [[ -f ssl/cert.pem && -f ssl/key.pem ]]; then
         if command -v openssl &>/dev/null; then
@@ -145,7 +159,6 @@ if [[ -n "$SSL_DOMAIN" ]]; then
 
         if [[ -z "$ACME_CMD" ]]; then
             echo -e "${YELLOW}未检测到 acme.sh，正在安装…${RESET}"
-            # acme.sh 需要 cron 来设置自动续期任务，Debian/Ubuntu 默认未安装
             if ! command -v crontab &>/dev/null; then
                 echo -e "${YELLOW}正在安装 cron（acme.sh 自动续期所需）…${RESET}"
                 apt-get install -y -q cron 2>/dev/null || true
@@ -156,20 +169,31 @@ if [[ -n "$SSL_DOMAIN" ]]; then
             ACME_CMD="$HOME/.acme.sh/acme.sh"
         fi
 
-        echo -e "${CYAN}正在为 ${SSL_DOMAIN} 申请 SSL 证书（需要80端口未被占用）…${RESET}"
-        "$ACME_CMD" --issue -d "$SSL_DOMAIN" --standalone --httpport 80 || _ACME_EXIT=$?
+        _DOMAIN_COUNT="${#_SSL_DOMAIN_ARR[@]}"
+        if [[ "$_DOMAIN_COUNT" -gt 1 ]]; then
+            echo -e "${CYAN}正在为 ${_DOMAIN_COUNT} 个域名申请 SAN 证书（主域名：${SSL_DOMAIN}）…${RESET}"
+        else
+            echo -e "${CYAN}正在为 ${SSL_DOMAIN} 申请 SSL 证书（需要80端口未被占用）…${RESET}"
+        fi
+        # shellcheck disable=SC2086
+        "$ACME_CMD" --issue $_ACME_D_FLAGS --standalone --httpport 80 || _ACME_EXIT=$?
         # 退出码 0 = 新申请成功；2 = 证书仍有效已跳过（RENEW_SKIP）
-        # 两种情况都直接安装证书到 ssl/
         if [[ "${_ACME_EXIT:-0}" -eq 0 || "${_ACME_EXIT:-0}" -eq 2 ]]; then
+            # install-cert 只需指定主域名
+            # --reloadcmd：证书续期后自动通知 nginx 容器热重载，无需重启容器
             "$ACME_CMD" --install-cert -d "$SSL_DOMAIN" \
                 --fullchain-file ssl/cert.pem \
-                --key-file       ssl/key.pem
-            echo -e "${GREEN}✅ 证书已安装到 ssl/${RESET}"
+                --key-file       ssl/key.pem \
+                --reloadcmd      "docker exec subscribe-gateway nginx -s reload"
+            echo -e "${GREEN}✅ 证书已安装到 ssl/（SAN 覆盖：${SSL_DOMAIN_RAW}）${RESET}"
+            echo -e "${GREEN}   续期后将自动热重载 nginx，无需人工干预${RESET}"
         else
             echo -e "${RED}❌ 证书申请失败，请检查：${RESET}"
-            echo "   1. 域名 ${SSL_DOMAIN} 是否已正确解析到本机"
-            echo "   2. 80 端口是否未被占用（sudo lsof -i :80）"
-            echo "   3. 防火墙是否放行了 80 端口"
+            for _d in "${_SSL_DOMAIN_ARR[@]}"; do
+                echo "   • 域名 ${_d} 是否已正确解析到本机"
+            done
+            echo "   • 80 端口是否未被占用（sudo lsof -i :80）"
+            echo "   • 防火墙是否放行了 80 端口"
             echo ""
             echo -e "${YELLOW}修复后直接重新运行 ./setup.sh，已填写的信息会自动保留${RESET}"
             exit 1
@@ -251,6 +275,9 @@ echo ""
 
 # ── 打印访问信息 ──────────────────────────────────────────────
 print_summary() {
+    local PORT_SUFFIX=""
+    [[ "$GATEWAY_PORT" != "443" ]] && PORT_SUFFIX=":${GATEWAY_PORT}"
+
     # 优先使用域名，否则获取公网IP
     if [[ -n "$SSL_DOMAIN" ]]; then
         DISPLAY_HOST="$SSL_DOMAIN"
@@ -259,9 +286,6 @@ print_summary() {
                     || curl -s --max-time 5 ip.sb 2>/dev/null \
                     || hostname -I | awk '{print $1}')
     fi
-
-    local PORT_SUFFIX=""
-    [[ "$GATEWAY_PORT" != "443" ]] && PORT_SUFFIX=":${GATEWAY_PORT}"
 
     echo ""
     echo -e "${BOLD}════════════════════════════════════════════${RESET}"
@@ -274,7 +298,15 @@ print_summary() {
     echo -e "  密码：  ${YELLOW}${ADMIN_PASS}${RESET}"
     echo ""
     echo -e "  ${BOLD}订阅网关${RESET}"
-    echo -e "  拦截端口：${CYAN}https://${DISPLAY_HOST}${PORT_SUFFIX}${RESET}"
+    # 多域名时显示所有入口
+    if [[ -n "$SSL_DOMAIN_RAW" && "${#_SSL_DOMAIN_ARR[@]}" -gt 1 ]]; then
+        echo -e "  订阅入口（共 ${#_SSL_DOMAIN_ARR[@]} 个域名）："
+        for _d in "${_SSL_DOMAIN_ARR[@]}"; do
+            [[ -n "$_d" ]] && echo -e "    ${CYAN}https://${_d}${PORT_SUFFIX}${SUBSCRIBE_PATH}${RESET}"
+        done
+    else
+        echo -e "  拦截端口：${CYAN}https://${DISPLAY_HOST}${PORT_SUFFIX}${RESET}"
+    fi
     echo -e "  订阅路径：${CYAN}${SUBSCRIBE_PATH}${RESET}"
     echo -e "  代理到：  ${CYAN}${V2B_BACKEND}${RESET}"
     echo ""
