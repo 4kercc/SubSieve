@@ -18,6 +18,11 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
       - gw_config:/etc/nginx/subscribe
       - gw_logs:/var/log/subscribe
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   admin:
     build: ./admin
@@ -34,6 +39,11 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
       - gw_config:/etc/nginx/subscribe
       - gw_logs:/var/log/subscribe
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   gw_config:

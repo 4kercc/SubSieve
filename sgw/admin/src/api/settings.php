@@ -145,6 +145,9 @@ function read_settings(): array {
 }
 
 function write_settings(array $s): bool {
+    // 密码不写入 JSON 文件（明文存在系统中风险过高）
+    // admin_pass 只从环境变量读取，修改密码后应在管理后台重新执行 setup.sh 或手动修改 .env
+    unset($s['admin_pass']);
     return file_put_contents(SETTINGS_JSON, json_encode($s, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX) !== false;
 }
 
@@ -162,14 +165,21 @@ location ^~ $subscribePath {
     if (\$is_custom_bad_ua = 1)  { set \$block_reason "ua"; }
     if (\$is_ua_whitelisted = 1) { set \$block_reason ""; }
 
+    # 301 跳转逻辑：如果配置了自定义 UA 跳转 URL，且未被白名单放行，则进行 301 重定向
+    set \$my_redirect \$ua_custom_redirect;
+    if (\$whitelist_ip = 1)      { set \$my_redirect ""; }
+    if (\$is_ua_whitelisted = 1) { set \$my_redirect ""; }
+    if (\$my_redirect != "")     { return 301 \$my_redirect; }
+
     if (\$whitelist_ip = 1) { set \$block_reason ""; }
 
     if (\$block_reason = "cloud") { return 403 "Forbidden: Cloud IP"; }
     if (\$block_reason = "ua")    { return 403 "Forbidden: Invalid Client"; }
 
-    # 白名单 IP 通过 cloud_geo.conf 中的 map 将 $subscribe_limit_key 置为空，不受此限速约束
+    # 白名单 IP 通过 cloud_geo.conf 中的 map 将 \$subscribe_limit_key 置为空，不受此限速约束
     limit_req zone=subscribe_limit burst=5 nodelay;
     limit_req_status 429;
+    client_max_body_size 1k;
 
     proxy_pass          $backend;
     proxy_set_header    Host              $host;

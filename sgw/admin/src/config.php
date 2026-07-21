@@ -15,6 +15,7 @@ define('UA_BLACKLIST_JSON', '/etc/nginx/subscribe/ua_blacklist.json');
 define('UA_CUSTOM_CONF',    '/etc/nginx/subscribe/ua_custom.conf');
 define('UA_WHITELIST_JSON', '/etc/nginx/subscribe/ua_whitelist.json');
 define('UA_WHITELIST_CONF',    '/etc/nginx/subscribe/ua_whitelist.conf');
+define('UA_REDIRECT_CONF',  '/etc/nginx/subscribe/ua_redirect.conf');
 define('TOKEN_BLACKLIST_JSON', '/etc/nginx/subscribe/token_blacklist.json');
 define('SETTINGS_JSON',     '/etc/nginx/subscribe/admin_settings.json');
 define('PROTECT_CONF',      '/etc/nginx/subscribe/protect.conf');

@@ -17,6 +17,22 @@ STATE_FILE=".setup_state"
 echo -e "${BOLD}SubSieve — 部署向导${RESET}"
 echo "────────────────────────────────────────"
 
+# ── 检测 Docker 和 Docker Compose ────────────────────────
+if ! command -v docker &>/dev/null; then
+    echo -e "${RED}❌ 未检测到 Docker，请先安装 Docker Engine${RESET}"
+    exit 1
+fi
+# 自动检测 v2（docker compose）或 v1（docker-compose）
+if docker compose version &>/dev/null 2>&1; then
+    DC="docker compose"
+elif command -v docker-compose &>/dev/null; then
+    DC="docker-compose"
+    echo -e "${YELLOW}⚠  检测到旧版 docker-compose（v1），建议升级到 Docker Compose v2：https://docs.docker.com/compose/migrate/${RESET}"
+else
+    echo -e "${RED}❌ 未找到 docker compose 或 docker-compose，请安装 Docker Compose${RESET}"
+    exit 1
+fi
+
 # ── 加载上次保存的输入 ─────────────────────────────────────────
 _S_V2B_HOST=""; _S_SUBSCRIBE_PATH=""; _S_GATEWAY_PORT=""; _S_SSL_DOMAIN=""
 _S_AXISNOW_TRUSTED_IPS=""; _S_REAL_IP_HEADER=""
@@ -261,7 +277,7 @@ echo -e "${GREEN}✅ .env 已生成${RESET}"
 # ── 启动容器 ──────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}正在构建并启动容器（首次约需 3-5 分钟）…${RESET}"
-docker compose up -d --build
+$DC up -d --build
 
 # ── 等待 gateway 初始化完成 ────────────────────────────────────
 echo -e "${CYAN}等待 gateway 初始化（拉取云IP库，请稍候）…${RESET}"
